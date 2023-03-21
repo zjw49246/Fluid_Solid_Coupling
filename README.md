@@ -10,6 +10,7 @@ Then run the code
 ```angular2html
 python main.py
 ```
+Dye, velocity, curl, pressure visualization can be switched by pressing D, V, C, P on the keyboard.
 
 ## 2D Simulation
 ![fluid solid coupling](./results/results_rho7_sq_size50_1/video.gif)
