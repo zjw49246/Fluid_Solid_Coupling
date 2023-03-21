@@ -1,3 +1,5 @@
 .idea/
 *.mp4
 frames/
+results_*/
+!results/results_*/

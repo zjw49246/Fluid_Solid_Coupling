@@ -33,6 +33,7 @@ method_jacobi = "jacobi"
 method = method_jacobi
 
 test_mode = True
+record_video = True
 use_MacCormack = True
 vc_jacobi_iters = 500
 gravity = 0
@@ -42,7 +43,7 @@ grid_in_sq_sample_num_each_row_recip = 1 / grid_in_sq_sample_num_each_row
 grid_in_sq_sample_dist = 1 / (grid_in_sq_sample_num_each_row - 1)
 grid_in_sq_sample_num = grid_in_sq_sample_num_each_row * grid_in_sq_sample_num_each_row
 grid_in_sq_sample_num_recip = 1 / grid_in_sq_sample_num
-sq_length = 30
+sq_length = 50
 # sq_total_sample_num = int((sq_length / grid_in_sq_sample_dist) * (sq_length / grid_in_sq_sample_dist))
 sq_total_sample_num = sq_length * sq_length * grid_in_sq_sample_num
 sq_total_sample_num_recip = 1 / sq_total_sample_num
@@ -65,7 +66,7 @@ vc_num_level = 3
 top_level_num_grid = (int(res / math.pow(2, vc_num_level))) * (int(res / math.pow(2, vc_num_level)))
 rad_45 = ti.math.pi / 4
 rho_fluid = 1
-rho_square = 9
+rho_square = 7
 rho_ratio = rho_square / rho_fluid
 
 use_sparse_matrix = False
@@ -94,10 +95,11 @@ square_num_sample = ti.field(int, shape=1)
 sq_positions = ti.Vector.field(2, float, shape=4)  # (top left, top right, bottom right, bottom left)
 grid_in_sq = ti.field(int)
 grid_not_in_sq = ti.field(int)
+grid_pre_in_sq = ti.field(int)
 vel_in_sq = ti.Vector.field(2, int)
 grid_in_sq_in_sample_num = ti.field(int)
 grid_in_sq_snode = ti.root.dense(ti.ij, (res, res))
-grid_in_sq_snode.place(grid_in_sq, grid_not_in_sq, vel_in_sq, grid_in_sq_in_sample_num)
+grid_in_sq_snode.place(grid_in_sq, grid_not_in_sq, grid_pre_in_sq, vel_in_sq, grid_in_sq_in_sample_num)
 vel_u_grid_in_sq_in_sample_num = ti.field(int, shape=(res - 1, res))
 vel_v_grid_in_sq_in_sample_num = ti.field(int, shape=(res, res - 1))
 J_sq = ti.field(float, shape=(3, res * res))
@@ -430,6 +432,21 @@ def fluid_square_collision():
             dyes_pair.cur[i, j] = ti.Vector([0, 0, 0])
             pressures_pair.cur[i, j] = 0.0
 
+        # for grid which is not in square but was in square at prev step, use neighboring grids' dye to fill it
+        if grid_in_sq[i, j] == 0 and grid_pre_in_sq[i, j] == 1:
+            # dyes_pair.cur[i, j] = ti.Vector([1, 1, 1])
+            for offset_i, offset_j in ti.ndrange((-1, 2), (-1, 2)):
+                if offset_i == 0 and offset_j == 0:
+                    continue
+                nb_i, nb_j = i + offset_i, j + offset_j
+                if nb_i < 0 or nb_i >= res or nb_j < 0 or nb_j >= res:
+                    continue
+                if grid_in_sq[nb_i, nb_j] == 1 or grid_pre_in_sq[nb_i, nb_j] == 1:
+                    continue
+                dyes_pair.cur[i, j] = ti.math.max(dyes_pair.cur[i, j], dyes_pair.cur[nb_i, nb_j]) #- ti.Vector([0, 0.5, 0.5])
+
+        grid_pre_in_sq[i, j] = grid_in_sq[i, j]
+
     for i, j in vel_in_sq:
         if vel_in_sq[i, j][0] == 1:
             _velocities[i, j][0] = square_vel[0][0]
@@ -750,7 +767,7 @@ def main():
     # method_label = gui.label('iteration method')
     # num_iters_label = gui.label('iteration num')
 
-    result_dir = "./results"
+    result_dir = f'./results_rho{rho_square}_sq_size{sq_length}'
     video_manager = ti.tools.VideoManager(output_dir=result_dir, framerate=24, automatic_build=False)
 
     while gui.running:
@@ -815,18 +832,20 @@ def main():
         elif visualize_d:
             generate_image()
             gui.set_image(_image)
-            video_manager.write_frame(_image)
+            if record_video:
+                video_manager.write_frame(_image)
         elif visualize_v:
             gui.set_image(velocities_pair.cur.to_numpy() * 0.01 + 0.5)
         elif visualize_p:
             gui.set_image(pressures_pair.cur.to_numpy() * 0.03 + 0.5)
         gui.show()
 
-    print()
-    print('Exporting .mp4 and .gif videos...')
-    video_manager.make_video(gif=True, mp4=True)
-    print(f'MP4 video is saved to {video_manager.get_output_filename(".mp4")}')
-    print(f'GIF video is saved to {video_manager.get_output_filename(".gif")}')
+    if record_video:
+        print()
+        print('Exporting .mp4 and .gif videos...')
+        video_manager.make_video(gif=True, mp4=True)
+        print(f'MP4 video is saved to {video_manager.get_output_filename(".mp4")}')
+        print(f'GIF video is saved to {video_manager.get_output_filename(".gif")}')
 
 
 if __name__ == '__main__':
